@@ -13,6 +13,8 @@ def read_value(blob, offset, depth=0):
     if kind == 0:
         size = struct.unpack_from('>H', blob, offset)[0]
         offset += 2
+        if offset + size > len(blob):
+            raise ValueError('String truncada')
         return blob[offset:offset + size].decode('utf-8'), offset + size
     if kind == 1:
         return struct.unpack_from('>d', blob, offset)[0], offset + 8
@@ -25,6 +27,8 @@ def read_value(blob, offset, depth=0):
         for _ in range(count):
             key, offset = read_value(blob, offset, depth + 1)
             value, offset = read_value(blob, offset, depth + 1)
+            if key in result:
+                raise ValueError('Chave duplicada')
             result[key] = value
         return result, offset
     if kind == 3:

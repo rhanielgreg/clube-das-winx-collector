@@ -8,6 +8,7 @@ import sqlite3
 import tempfile
 import time
 import uuid
+from stats import confirmed_stats
 
 logging.basicConfig(level=os.getenv('LOG_LEVEL', 'INFO'), format='%(asctime)s %(levelname)s %(message)s')
 LOG = logging.getLogger('winx-collector')
@@ -66,16 +67,6 @@ def download_consistent_snapshot(sftp, remote, local):
         return connection.execute('SELECT username, name, isDead, data FROM networkPlayers').fetchall()
     finally:
         connection.close()
-
-
-def confirmed_stats(_blob):
-    """Somente campos comprovados entram aqui; nenhum valor e inferido do BLOB."""
-    return {
-        'p_kills_total': None,
-        'p_kills_firearm': None,
-        'p_kills_melee': None,
-        'p_survival_seconds': None,
-    }
 
 
 def extract(rows, salt):

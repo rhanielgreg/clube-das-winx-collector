@@ -1,6 +1,9 @@
 import unittest
+import json
+from pathlib import Path
 
 from collector import extract
+from stats import confirmed_stats
 
 
 class CollectorExtractionSafetyTests(unittest.TestCase):
@@ -17,6 +20,17 @@ class CollectorExtractionSafetyTests(unittest.TestCase):
     def test_skips_incomplete_identification(self):
         result = extract([(None, 'Bloom', 0, b''), ('user', '', 0, b'')], 'secret-salt')
         self.assertEqual(result, [])
+
+    def test_anonymized_real_ttf_samples(self):
+        samples = json.loads((Path(__file__).parent / 'fixtures' / 'ttf_only.json').read_text())
+        for sample in samples:
+            with self.subTest(total=sample['expected_total']):
+                parsed = confirmed_stats(bytes.fromhex(sample['ttf_only_hex']))
+                self.assertEqual(parsed['p_kills_total'], sample['expected_total'])
+                self.assertIsNone(parsed['p_survival_seconds'])
+
+    def test_rejects_truncated_blob(self):
+        self.assertIsNone(confirmed_stats(b'\x00\x00\x0dTTF_KillStats\x02')['p_kills_total'])
 
 
 if __name__ == '__main__':
