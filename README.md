@@ -17,9 +17,9 @@ O Railway executa `collector.py` a cada 5 minutos, coleta uma cópia temporária
 
 ## Importante sobre estatísticas
 
-O BLOB contém referências a `TTF_KillStats`, `vehicleKills` e `TTFStatsGameTimeSeconds`, mas não há amostra validada que comprove a serialização e o significado de cada valor. Por isso `confirmed_stats()` devolve `NULL` deliberadamente. O ranking público permanece em estado de espera, sem fabricar números.
+O leitor de `TTF_KillStats` foi validado contra cinco registros reais. Os testes usam apenas os fragmentos TTF anonimizados, sem contas, nomes, Steam IDs, coordenadas ou BLOB completo. Categorias, armas e veículos precisam concordar; valores inconsistentes são rejeitados.
 
-Quando houver uma amostra local anonimizada de `players.db`, implemente e teste a decodificação em `confirmed_stats()` antes de habilitá-la. A coleta reflete salvamentos do jogo; não é instantânea.
+Kills totais incluem todas as categorias; kills corpo a corpo incluem armas de contato e desarmado. O campo de tempo TTF foi decodificado, mas fica indisponível como sobrevivência até confirmar sua semântica no código Lua. A coleta reflete salvamentos do jogo; não é instantânea.
 
 ## Configuração
 
