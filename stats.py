@@ -33,8 +33,8 @@ def confirmed_stats(blob):
             p_kills_total=total,
             p_kills_firearm=values['Firearm'],
             p_kills_melee=sum(values[key] for key in MELEE),
-            # O valor TTF de tempo foi decodificado, mas sua semantica de
-            # sobrevivencia ainda depende do codigo Lua que o atualiza.
+            # O Lua TTF acumula segundos reais de jogo, nao horas sobrevividas.
+            # Nao apresentar tempo jogado como tempo de sobrevivencia.
             p_survival_seconds=None,
         )
     except (ValueError, KeyError, TypeError, UnicodeError, IndexError, struct.error):

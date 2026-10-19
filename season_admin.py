@@ -18,11 +18,13 @@ def required(key):
 def rpc(name, payload):
     url = required('SUPABASE_URL').rstrip('/') + '/rest/v1/rpc/' + name
     key = required('SUPABASE_SERVICE_ROLE_KEY')
-    response = requests.post(url, json=payload, headers={
+    headers = {
         'apikey': key,
-        'Authorization': 'Bearer ' + key,
         'Content-Type': 'application/json',
-    }, timeout=25)
+    }
+    if not key.startswith('sb_'):
+        headers['Authorization'] = 'Bearer ' + key
+    response = requests.post(url, json=payload, headers=headers, timeout=25)
     if not response.ok:
         raise RuntimeError(f'Supabase respondeu HTTP {response.status_code}: {response.text[:400]}')
     return response.json() if response.content else None

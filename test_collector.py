@@ -1,12 +1,22 @@
 import unittest
 import json
 from pathlib import Path
+from unittest.mock import patch
 
-from collector import extract
+from collector import extract, supabase_headers
 from stats import confirmed_stats
 
 
 class CollectorExtractionSafetyTests(unittest.TestCase):
+    def test_modern_secret_is_not_sent_as_jwt(self):
+        with patch.dict('os.environ', {'SUPABASE_SERVICE_ROLE_KEY': 'sb_secret_test'}):
+            self.assertNotIn('Authorization', supabase_headers())
+            self.assertEqual(supabase_headers()['apikey'], 'sb_secret_test')
+
+    def test_legacy_key_keeps_bearer_compatibility(self):
+        with patch.dict('os.environ', {'SUPABASE_SERVICE_ROLE_KEY': 'legacy-test-jwt'}):
+            self.assertEqual(supabase_headers()['Authorization'], 'Bearer legacy-test-jwt')
+
     def test_anonymizes_account_and_does_not_invent_stats(self):
         result = extract([('steam-user', 'Bloom', 0, b'opaque-data')], 'secret-salt')
         self.assertEqual(len(result), 1)

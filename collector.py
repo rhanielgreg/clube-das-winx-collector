@@ -94,9 +94,10 @@ def supabase_headers(prefer=None):
     key = required('SUPABASE_SERVICE_ROLE_KEY')
     headers = {
         'apikey': key,
-        'Authorization': 'Bearer ' + key,
         'Content-Type': 'application/json',
     }
+    if not key.startswith('sb_'):
+        headers['Authorization'] = 'Bearer ' + key
     if prefer:
         headers['Prefer'] = prefer
     return headers
@@ -196,6 +197,9 @@ def main():
     salt = required('PLAYER_HASH_SALT')
     dry_run = os.getenv('DRY_RUN', '').lower() in ('1', 'true', 'yes')
     if dry_run:
+        if os.getenv('SUPABASE_URL') and os.getenv('SUPABASE_SERVICE_ROLE_KEY'):
+            rpc('get_public_ranking_status', {})
+            LOG.info('Conexao Supabase validada em modo somente leitura')
         rows = collect_rows()
         observations = extract(rows, salt)
         LOG.info('DRY_RUN concluido: %d personagens; nenhuma informacao enviada', len(observations))

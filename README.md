@@ -19,7 +19,7 @@ O Railway executa `collector.py` a cada 5 minutos, coleta uma cópia temporária
 
 O leitor de `TTF_KillStats` foi validado contra cinco registros reais. Os testes usam apenas os fragmentos TTF anonimizados, sem contas, nomes, Steam IDs, coordenadas ou BLOB completo. Categorias, armas e veículos precisam concordar; valores inconsistentes são rejeitados.
 
-Kills totais incluem todas as categorias; kills corpo a corpo incluem armas de contato e desarmado. O campo de tempo TTF foi decodificado, mas fica indisponível como sobrevivência até confirmar sua semântica no código Lua. A coleta reflete salvamentos do jogo; não é instantânea.
+Kills totais incluem todas as categorias; kills corpo a corpo incluem armas de contato e desarmado. O código Lua instalado confirma que `TTFStatsGameTimeSeconds` acumula segundos reais de jogo, não sobrevivência. Por isso sobrevivência permanece indisponível até uma fonte própria ser validada. A coleta reflete salvamentos do jogo; não é instantânea.
 
 ## Configuração
 
@@ -28,7 +28,7 @@ Kills totais incluem todas as categorias; kills corpo a corpo incluem armas de c
 3. Configure no Railway as variáveis de `.env.example`. Nunca faça commit de `.env`.
 4. Confirme a fingerprint SFTP com a hospedagem e salve a linha completa em `SFTP_KNOWN_HOSTS`.
 5. Rode primeiro com `DRY_RUN=true`; confira que o banco é lido sem alterações.
-6. Mude para `DRY_RUN=false`. `railway.json` agenda `collector.py` a cada cinco minutos.
+6. Após validar a leitura, mude para `DRY_RUN=false`. Configure o Cron Schedule do serviço Railway para `*/5 * * * *`, início `python collector.py` e reinício `Never`. O modo de teste também verifica o Supabase por uma RPC somente leitura quando as credenciais estão presentes.
 7. Na Vercel, configure `SUPABASE_URL` e `SUPABASE_PUBLISHABLE_KEY` para liberar o painel público.
 
 ## Temporadas — controle manual do Admin
