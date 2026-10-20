@@ -5,6 +5,7 @@ create extension if not exists pgcrypto;
 create table if not exists public.game_players (
   id uuid primary key default gen_random_uuid(),
   player_key text not null unique,
+  steam_username text,
   created_at timestamptz not null default now(),
   last_seen_at timestamptz not null default now()
 );
@@ -125,6 +126,7 @@ returns table (
   season_name text,
   rank_position bigint,
   character_name text,
+  steam_username text,
   alive boolean,
   kills_total integer,
   kills_firearm integer,
@@ -134,15 +136,47 @@ returns table (
 )
 language sql stable security definer set search_path = ''
 as $$
-  select c.id, s.id, s.name,
-    row_number() over (order by st.kills_total desc nulls last, st.survival_seconds desc nulls last, c.public_name asc),
-    c.public_name, c.alive, st.kills_total, st.kills_firearm, st.kills_melee,
-    st.survival_seconds, st.observed_at
-  from public.ranking_seasons s
-  join public.player_statistics_current st on st.season_id = s.id
-  join public.game_characters c on c.id = st.character_id
-  where s.status = 'active' and st.kills_total is not null
-  order by st.kills_total desc nulls last, st.survival_seconds desc nulls last, c.public_name asc
+  with latest_player_character as (
+    -- Seleciona apenas 1 personagem por jogador da Steam (o mais recente da conta)
+    select distinct on (c.player_id)
+      c.id as character_id,
+      c.player_id,
+      c.public_name,
+      c.alive,
+      p.steam_username,
+      st.kills_total,
+      st.kills_firearm,
+      st.kills_melee,
+      st.survival_seconds,
+      st.observed_at,
+      s.id as season_id,
+      s.name as season_name
+    from public.ranking_seasons s
+    join public.player_statistics_current st on st.season_id = s.id
+    join public.game_characters c on c.id = st.character_id
+    join public.game_players p on p.id = c.player_id
+    where s.status = 'active' and st.kills_total is not null
+    order by c.player_id,
+             -- Dá prioridade para o personagem vivo; se todos estiverem mortos, pega o mais recente
+             case when c.alive = true then 0 else 1 end,
+             c.last_seen_at desc,
+             st.observed_at desc
+  )
+  select
+    character_id as profile_id,
+    season_id,
+    season_name,
+    row_number() over (order by kills_total desc nulls last, survival_seconds desc nulls last, coalesce(steam_username, public_name) asc) as rank_position,
+    public_name as character_name,
+    steam_username,
+    alive,
+    kills_total,
+    kills_firearm,
+    kills_melee,
+    survival_seconds,
+    observed_at as last_updated_at
+  from latest_player_character
+  order by kills_total desc nulls last, survival_seconds desc nulls last, coalesce(steam_username, public_name) asc
   limit least(greatest(coalesce(p_limit, 100), 1), 250);
 $$;
 
@@ -189,6 +223,7 @@ returns table (
   season_name text,
   rank_position bigint,
   character_name text,
+  steam_username text,
   alive boolean,
   kills_total integer,
   kills_firearm integer,
@@ -200,15 +235,16 @@ language sql stable security definer set search_path = ''
 as $$
   with ranked as (
     select c.id profile_id, s.id season_id, s.name season_name,
-      row_number() over (partition by s.id order by st.kills_total desc nulls last, st.survival_seconds desc nulls last, c.public_name) rank_position,
-      c.public_name character_name, c.alive, st.kills_total, st.kills_firearm, st.kills_melee,
+      row_number() over (partition by s.id order by st.kills_total desc nulls last, st.survival_seconds desc nulls last, coalesce(p.steam_username, c.public_name)) rank_position,
+      c.public_name character_name, p.steam_username, c.alive, st.kills_total, st.kills_firearm, st.kills_melee,
       st.survival_seconds, st.observed_at last_updated_at, s.status, s.started_at
     from public.ranking_seasons s
     join public.player_statistics_current st on st.season_id = s.id
     join public.game_characters c on c.id = st.character_id
+    join public.game_players p on p.id = c.player_id
     where s.status in ('active', 'closed') and st.kills_total is not null
   )
-  select r.profile_id, r.season_id, r.season_name, r.rank_position, r.character_name,
+  select r.profile_id, r.season_id, r.season_name, r.rank_position, r.character_name, r.steam_username,
     r.alive, r.kills_total, r.kills_firearm, r.kills_melee, r.survival_seconds, r.last_updated_at
   from ranked r where r.profile_id = p_profile_id
   order by case when r.status = 'active' then 0 else 1 end, r.started_at desc limit 1;
@@ -256,7 +292,8 @@ create or replace function public.ingest_player_observation(
   p_kills_total integer default null,
   p_kills_firearm integer default null,
   p_kills_melee integer default null,
-  p_survival_seconds bigint default null
+  p_survival_seconds bigint default null,
+  p_steam_username text default null
 )
 returns uuid
 language plpgsql security definer set search_path = ''
@@ -271,9 +308,11 @@ begin
     raise exception 'negative statistics are invalid';
   end if;
 
-  insert into public.game_players(player_key, last_seen_at)
-  values (p_player_key, p_observed_at)
-  on conflict (player_key) do update set last_seen_at = greatest(public.game_players.last_seen_at, excluded.last_seen_at)
+  insert into public.game_players(player_key, steam_username, last_seen_at)
+  values (p_player_key, p_steam_username, p_observed_at)
+  on conflict (player_key) do update set
+    steam_username = coalesce(excluded.steam_username, public.game_players.steam_username),
+    last_seen_at = greatest(public.game_players.last_seen_at, excluded.last_seen_at)
   returning id into v_player_id;
 
   insert into public.game_characters(player_id, character_key, public_name, alive, first_seen_at, last_seen_at, died_at, source_blob_sha256)

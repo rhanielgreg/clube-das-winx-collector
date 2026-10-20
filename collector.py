@@ -80,6 +80,7 @@ def extract(rows, salt):
         character_key = hashlib.sha256(f'{salt}:character:{username}:{character}'.encode()).hexdigest()
         observations.append({
             'p_player_key': player_key,
+            'p_steam_username': str(username)[:80],
             'p_character_key': character_key,
             'p_character_name': str(character)[:80],
             'p_alive': None if dead is None else not bool(dead),

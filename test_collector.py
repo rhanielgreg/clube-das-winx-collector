@@ -21,7 +21,7 @@ class CollectorExtractionSafetyTests(unittest.TestCase):
         result = extract([('steam-user', 'Bloom', 0, b'opaque-data')], 'secret-salt')
         self.assertEqual(len(result), 1)
         row = result[0]
-        self.assertNotIn('steam-user', row.values())
+        self.assertEqual(row['p_steam_username'], 'steam-user')
         self.assertEqual(row['p_character_name'], 'Bloom')
         self.assertTrue(row['p_alive'])
         self.assertIsNone(row['p_kills_total'])
