@@ -1,5 +1,11 @@
 # Coletor Railway + ranking sazonal — Clube das Winx
 
+## Estado da Missão Master 07 — 25/10/2026
+
+Clone legítimo em `codex/mission07`, base `master@07dde5c`. Implementação/testes locais; vínculo com Railway e versão efetivamente implantada **não confirmados**. Não houve migração ou deploy. Não publicar a branch sem verificar gatilhos automáticos do serviço correto.
+
+O checkpoint consolidado está no repositório do site, `docs/MASTER07-CHECKPOINT.md`. Migrações canônicas 001–005 pertencem àquele repositório. `schema.sql` deste coletor é somente bootstrap de banco vazio, agora protegido contra reaplicação. Não usar para atualizar banco existente. Corrigida sua ACL de 10 para a assinatura real de 11 argumentos; encerramento antigo fica bloqueado até a migração oficial.
+
 ## Fluxo
 
 `BisectHosting (SFTP) → Railway Cron → Supabase → API Vercel → site`
@@ -49,8 +55,22 @@ python season_admin.py close --id "UUID_DA_TEMPORADA" --yes
 python season_admin.py close --id "UUID_DA_TEMPORADA" --winner-id "UUID_DO_JOGADOR" --yes
 ```
 
-O critério atual é kills da temporada; desempate por maior tempo de sobrevivência e, ainda empatado, nome em ordem alfabética apenas para estabilidade técnica. O Admin pode escolher explicitamente um jogador classificado com `--winner-id` quando o critério administrativo for necessário.
+Após 003/005, só vidas certificadas e confirmadas vivas competem; offline continua elegível. Kills da temporada, desempate por tempo jogado registrado e UUID. Um `--winner-id` divergente do primeiro classificado é rejeitado pelo banco. Todos os participantes certificados mortos com evidência recente suficiente: O Apocalipse Venceu, sem campeão. Estado desconhecido ou coleta falhando bloqueia encerramento. Não executar os exemplos em produção apenas para testar.
 
 ## Limitação de identidade do personagem
 
 Sem um identificador de vida confirmado no SQLite, `character_key` combina conta anonimizada e nome do personagem. Se a mesma conta reutilizar exatamente o mesmo nome após morrer, as vidas podem ser tratadas como o mesmo personagem. Não use o histórico de mortes como definitivo até a origem fornecer um identificador confiável.
+
+## Contrato futuro de vidas — opt-in
+
+Vazio/`legacy` em `LIFE_PIPELINE_VERSION` mantém o protocolo anterior. `life-v1` exige 004/005, catálogo de 100, permissões conferidas e emissor confiável **ainda não instalado ou validado**. Não habilitar somente porque a variável existe. A migração 005 muda a população do ranking; coordenar a transição com o site e o banco.
+
+`WinxLifeV1` não é um campo atribuído ao TTF atual: é o envelope futuro em modData, com `payload_json` UTF-8 e HMAC-SHA256 hexadecimal em `signature`. A chave `LIFE_ATTESTATION_KEY` (mínimo 32 caracteres) deve ser provisionada por secret store, nunca pelo Git/chat. O payload contém `schema=winx-life-v1`, `world_id`, `life_id`, `account_id`, `source_username`, `character_name`, `source_observed_at`, `alive` e `metrics` tipadas (`value`, `unit`, `scope=life`, `coverage`). Modificar/instalar emissor no jogo exige autorização adicional.
+
+A conta Steam é anonimizada com salt, não usada como nome. O UUID da vida é obrigatório; renomear mantém vida e reutilizar nome não reaproveita medalhas. Linha SQLite, assinatura e estado precisam concordar. Mortos legados sem envelope não ganham nova identidade; vivo/desconhecido sem envelope faz a coleta falhar antes de enviar observações. Não há fallback silencioso para a ingestão por nome.
+
+Reutilizar TTF exige `ttf_counters_are_lifetime=true`, `ttf_metrics_digest` dos contadores canônicos e `ttf_coverage`. O digest liga os contadores ao snapshot assinado; o emissor precisa comprovar a semântica vitalícia. Veículos já participam do total e não são adicionados novamente. As cinco fixtures reais anonimizadas comprovam os contadores, sem comprovar IDs/unidades/escopo da instalação atual.
+
+Unidades do protocolo: `count`, `seconds` para tempo jogado, `world_days` para sobrevivência e `meters` para as distâncias separadas. Não converter horas jogadas em dias no mundo. Dados ausentes não viram zero. Observação representa a leitura do snapshot, não a data exata de nascimento, morte ou conquista. O novo fluxo registra sucesso somente após concluir envios; falha parcial registra execução falha e impede encerramento no contrato oficial.
+
+Teste local sem acessar serviços: `python -B -m unittest discover -p "test*.py"` (13 testes). O site contém teste de integração que executa este parser com TTF anonimizado, banco PostgreSQL descartável, API e apresentação reais; apenas o transporte PostgREST é simulado. Múltiplas sessões e PostgREST reais ainda exigem homologação.

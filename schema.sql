@@ -1,6 +1,19 @@
+-- BOOTSTRAP SOMENTE EM BANCO VAZIO. Nunca reaplicar sobre produção existente.
+begin;
+do $bootstrap$
+begin
+ if to_regclass('public.game_players') is not null or to_regclass('public.ranking_seasons') is not null then
+  raise exception 'empty database required for bootstrap; use reviewed versioned migrations';
+ end if;
+end; $bootstrap$;
 -- Clube das Winx: ranking sazonal seguro e histórico de estatísticas.
 -- Migração aditiva. Não remove nem altera dados existentes.
-create extension if not exists pgcrypto;
+-- PostgreSQL 13+ possui gen_random_uuid nativo; sem exigir pgcrypto.
+do $version$ begin
+ if to_regprocedure('pg_catalog.gen_random_uuid()') is null then
+  raise exception 'PostgreSQL 13 or newer required';
+ end if;
+end; $version$;
 
 create table if not exists public.game_players (
   id uuid primary key default gen_random_uuid(),
@@ -375,35 +388,12 @@ begin
 end;
 $$;
 
-create or replace function public.close_ranking_season(p_season_id uuid, p_winner_character_id uuid default null)
-returns uuid
-language plpgsql security definer set search_path = ''
-as $$
-declare v_winner record;
+-- Sem a migração oficial, encerrar não pode escolher morto silenciosamente.
+create or replace function public.close_ranking_season(p_season_id uuid,p_winner_character_id uuid default null)
+returns uuid language plpgsql security definer set search_path='' as $$
 begin
-  if not exists (select 1 from public.ranking_seasons where id = p_season_id and status = 'active') then
-    raise exception 'active season not found';
-  end if;
-  select st.character_id, c.public_name, st.kills_total, st.survival_seconds, s.reward_message into v_winner
-  from public.player_statistics_current st
-  join public.game_characters c on c.id = st.character_id
-  join public.ranking_seasons s on s.id = st.season_id
-  where st.season_id = p_season_id and st.kills_total is not null
-    and (p_winner_character_id is null or st.character_id = p_winner_character_id)
-  order by st.kills_total desc, st.survival_seconds desc nulls last, c.public_name asc limit 1;
-
-  if p_winner_character_id is not null and v_winner.character_id is null then
-    raise exception 'selected winner is not ranked in this season';
-  end if;
-
-  insert into public.season_winners(season_id, character_id, winner_name, final_kills_total, final_survival_seconds, reward_message)
-  values (p_season_id, v_winner.character_id, v_winner.public_name, v_winner.kills_total,
-    v_winner.survival_seconds, coalesce(v_winner.reward_message, 'Premiação especial oferecida pelo Admin do servidor.'))
-  on conflict (season_id) do nothing;
-  update public.ranking_seasons set status = 'closed', ended_at = now(), closed_at = now() where id = p_season_id;
-  return p_season_id;
-end;
-$$;
+ raise exception 'official championship migration required before closing';
+end; $$;
 
 revoke execute on function public.get_public_ranking(integer) from public;
 revoke execute on function public.get_public_seasons(integer) from public;
@@ -412,13 +402,13 @@ revoke execute on function public.get_public_player(uuid) from public;
 revoke execute on function public.get_public_player_history(uuid, integer) from public;
 revoke execute on function public.acquire_collector_lock(text, integer) from public;
 revoke execute on function public.release_collector_lock(text) from public;
-revoke execute on function public.ingest_player_observation(text, text, text, boolean, text, timestamptz, integer, integer, integer, bigint) from public;
+revoke execute on function public.ingest_player_observation(text, text, text, boolean, text, timestamptz, integer, integer, integer, bigint, text) from public;
 revoke execute on function public.start_ranking_season(text, text, text) from public;
 revoke execute on function public.close_ranking_season(uuid, uuid) from public;
 
 revoke execute on function public.acquire_collector_lock(text, integer),
   public.release_collector_lock(text),
-  public.ingest_player_observation(text, text, text, boolean, text, timestamptz, integer, integer, integer, bigint),
+  public.ingest_player_observation(text, text, text, boolean, text, timestamptz, integer, integer, integer, bigint, text),
   public.start_ranking_season(text, text, text), public.close_ranking_season(uuid, uuid)
   from anon, authenticated;
 
@@ -433,6 +423,8 @@ grant execute on function public.get_public_ranking(integer), public.get_public_
 grant select, insert, update on public.collector_runs to service_role;
 grant execute on function public.acquire_collector_lock(text, integer) to service_role;
 grant execute on function public.release_collector_lock(text) to service_role;
-grant execute on function public.ingest_player_observation(text, text, text, boolean, text, timestamptz, integer, integer, integer, bigint) to service_role;
+grant execute on function public.ingest_player_observation(text, text, text, boolean, text, timestamptz, integer, integer, integer, bigint, text) to service_role;
 grant execute on function public.start_ranking_season(text, text, text) to service_role;
 grant execute on function public.close_ranking_season(uuid, uuid) to service_role;
+
+commit;

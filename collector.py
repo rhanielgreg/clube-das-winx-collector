@@ -9,6 +9,7 @@ import tempfile
 import time
 import uuid
 from stats import confirmed_stats
+from verified_life import extract_verified
 
 logging.basicConfig(level=os.getenv('LOG_LEVEL', 'INFO'), format='%(asctime)s %(levelname)s %(message)s')
 LOG = logging.getLogger('winx-collector')
@@ -83,7 +84,7 @@ def extract(rows, salt):
             'p_steam_username': str(username)[:80],
             'p_character_key': character_key,
             'p_character_name': str(character)[:80],
-            'p_alive': None if dead is None else not bool(dead),
+            'p_alive': dead == 0 if isinstance(dead,(int,bool)) and dead in (0,1) else None,
             'p_blob_sha256': hashlib.sha256(blob_bytes).hexdigest(),
             'p_observed_at': observed_at,
             **confirmed_stats(blob_bytes),
@@ -150,7 +151,7 @@ def finish_run(run_id, status, count=0, error_code=None, fingerprint=None):
 
 def push(observations):
     for item in observations:
-        rpc('ingest_player_observation', item)
+        rpc('ingest_life_observation_v1' if os.getenv('LIFE_PIPELINE_VERSION', '').strip() == 'life-v1' else 'ingest_player_observation', item)
     LOG.info('Sincronizados %d personagens', len(observations))
 
 
@@ -196,13 +197,24 @@ def collect_rows():
 
 def main():
     salt = required('PLAYER_HASH_SALT')
+    pipeline = os.getenv('LIFE_PIPELINE_VERSION', '').strip()
+    if pipeline not in ('', 'legacy', 'life-v1'):
+        raise ValueError('unsupported life pipeline version')
+    def extract_for_pipeline(rows):
+        return extract_verified(rows,salt,required('LIFE_ATTESTATION_KEY')) if pipeline == 'life-v1' else extract(rows,salt)
+    if pipeline == 'life-v1':
+        # Verificação somente leitura, antes de coletar/escrever. Nunca fallback
+        # silencioso para mesclar vidas por nome quando o contrato novo falhar.
+        contract = rpc('get_service_pipeline_readiness_v1', {})
+        if not isinstance(contract, dict) or contract.get('catalog_count') != 100 or contract.get('contract_ready') is not True:
+            raise ValueError('life contract/catalog not installed')
     dry_run = os.getenv('DRY_RUN', '').lower() in ('1', 'true', 'yes')
     if dry_run:
         if os.getenv('SUPABASE_URL') and os.getenv('SUPABASE_SERVICE_ROLE_KEY'):
             rpc('get_public_ranking_status', {})
             LOG.info('Conexao Supabase validada em modo somente leitura')
         rows = collect_rows()
-        observations = extract(rows, salt)
+        observations = extract_for_pipeline(rows)
         LOG.info('DRY_RUN concluido: %d personagens; nenhuma informacao enviada', len(observations))
         return
 
@@ -215,8 +227,9 @@ def main():
     try:
         run_id = begin_run()
         rows = collect_rows()
-        observations = extract(rows, salt)
-        fingerprint = hashlib.sha256('|'.join(sorted(item['p_blob_sha256'] for item in observations)).encode()).hexdigest()
+        observations = extract_for_pipeline(rows)
+        hash_field = 'p_source_sha256' if pipeline == 'life-v1' else 'p_blob_sha256'
+        fingerprint = hashlib.sha256('|'.join(sorted(item[hash_field] for item in observations)).encode()).hexdigest()
         push(observations)
         finish_run(run_id, 'success', len(observations), fingerprint=fingerprint)
     except Exception as error:

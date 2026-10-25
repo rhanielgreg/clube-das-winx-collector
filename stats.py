@@ -54,3 +54,23 @@ def confirmed_stats(blob):
         )
     except (ValueError, KeyError, TypeError, UnicodeError, IndexError, struct.error):
         return unavailable
+
+
+def ttf_observation_counters(blob):
+    """Categorias reais da fonte, SEM afirmar identidade/escopo vitalício.
+
+    Somente um emissor confiável pode atestar que correspondem à vida indicada.
+    Vehicle participa do total; Other continua separado, nunca por subtração.
+    """
+    base = confirmed_stats(blob)
+    if base['p_kills_total'] is None:
+        return None
+    categories = anchored_value(blob, 'TTF_KillStats')['categories']
+    mapping = {'Axe':'kills_axe','Blunt':'kills_blunt','SmallBlunt':'kills_small_blunt',
+               'LongBlade':'kills_long_blade','SmallBlade':'kills_small_blade','Spear':'kills_spear',
+               'Unarmed':'kills_unarmed','Vehicle':'kills_vehicle','Other':'kills_other'}
+    result = {target: count(categories[source]) for source, target in mapping.items()}
+    result.update(kills_total=base['p_kills_total'], kills_firearm=base['p_kills_firearm'], kills_melee=base['p_kills_melee'])
+    if base['p_survival_seconds'] is not None:
+        result['played_seconds'] = base['p_survival_seconds']
+    return result
