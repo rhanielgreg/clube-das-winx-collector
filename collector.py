@@ -10,6 +10,7 @@ import time
 import uuid
 from stats import confirmed_stats
 from verified_life import extract_verified
+from ttf_saved_life import extract_saved_lives, verify_source_files
 
 logging.basicConfig(level=os.getenv('LOG_LEVEL', 'INFO'), format='%(asctime)s %(levelname)s %(message)s')
 LOG = logging.getLogger('winx-collector')
@@ -65,7 +66,8 @@ def download_consistent_snapshot(sftp, remote, local):
         check = connection.execute('PRAGMA integrity_check').fetchone()[0]
         if check != 'ok':
             raise ValueError('Falha de integridade do SQLite')
-        return connection.execute('SELECT username, name, isDead, data FROM networkPlayers').fetchall()
+        fields='username, name, isDead, data, steamid, world' if os.getenv('LIFE_PIPELINE_VERSION','').strip()=='ttf-mp-v1' else 'username, name, isDead, data'
+        return connection.execute('SELECT '+fields+' FROM networkPlayers').fetchall()
     finally:
         connection.close()
 
@@ -151,7 +153,7 @@ def finish_run(run_id, status, count=0, error_code=None, fingerprint=None):
 
 def push(observations):
     for item in observations:
-        rpc('ingest_life_observation_v1' if os.getenv('LIFE_PIPELINE_VERSION', '').strip() == 'life-v1' else 'ingest_player_observation', item)
+        rpc('ingest_life_observation_v1' if os.getenv('LIFE_PIPELINE_VERSION', '').strip() in ('life-v1','ttf-mp-v1') else 'ingest_player_observation', item)
     LOG.info('Sincronizados %d personagens', len(observations))
 
 
@@ -177,6 +179,8 @@ def collect_rows():
             )
             sftp = client.open_sftp()
             try:
+                if os.getenv('LIFE_PIPELINE_VERSION','').strip()=='ttf-mp-v1':
+                    verify_source_files(sftp,required('TTF_SOURCE_ROOT'),folder)
                 for attempt in range(1, 4):
                     local = Path(folder) / 'players.db'
                     try:
@@ -198,11 +202,12 @@ def collect_rows():
 def main():
     salt = required('PLAYER_HASH_SALT')
     pipeline = os.getenv('LIFE_PIPELINE_VERSION', '').strip()
-    if pipeline not in ('', 'legacy', 'life-v1'):
+    if pipeline not in ('', 'legacy', 'life-v1', 'ttf-mp-v1'):
         raise ValueError('unsupported life pipeline version')
     def extract_for_pipeline(rows):
+        if pipeline=='ttf-mp-v1':return extract_saved_lives(rows,salt,required('LIFE_SOURCE_NAMESPACE_UUID'))
         return extract_verified(rows,salt,required('LIFE_ATTESTATION_KEY')) if pipeline == 'life-v1' else extract(rows,salt)
-    if pipeline == 'life-v1':
+    if pipeline in ('life-v1','ttf-mp-v1'):
         # Verificação somente leitura, antes de coletar/escrever. Nunca fallback
         # silencioso para mesclar vidas por nome quando o contrato novo falhar.
         contract = rpc('get_service_pipeline_readiness_v1', {})
@@ -228,7 +233,7 @@ def main():
         run_id = begin_run()
         rows = collect_rows()
         observations = extract_for_pipeline(rows)
-        hash_field = 'p_source_sha256' if pipeline == 'life-v1' else 'p_blob_sha256'
+        hash_field = 'p_source_sha256' if pipeline in ('life-v1','ttf-mp-v1') else 'p_blob_sha256'
         fingerprint = hashlib.sha256('|'.join(sorted(item[hash_field] for item in observations)).encode()).hexdigest()
         push(observations)
         finish_run(run_id, 'success', len(observations), fingerprint=fingerprint)

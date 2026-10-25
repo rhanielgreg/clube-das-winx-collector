@@ -2,7 +2,7 @@
 
 ## Estado da Missão Master 07 — 25/10/2026
 
-Clone legítimo em `codex/mission07`, base `master@07dde5c`. Implementação/testes locais; vínculo com Railway e versão efetivamente implantada **não confirmados**. Não houve migração ou deploy. Não publicar a branch sem verificar gatilhos automáticos do serviço correto.
+Clone legítimo em `codex/mission07`, base `master@07dde5c`. Vínculo Railway confirmado por sessão autenticada: projeto `heartfelt-surprise`, serviço `winx-ranking-collector`, branch produtiva `master`, Dockerfile/Python 3.12, `python collector.py`, cron de 5 minutos e política Never. A feature branch não é a branch de deploy. A correção 001 foi aplicada separadamente no Supabase; o usuário corrigiu o SFTP e uma coleta de 5 personagens foi confirmada no banco. Nenhuma credencial foi alterada pelo agente e o código novo continua sem implantação.
 
 O checkpoint consolidado está no repositório do site, `docs/MASTER07-CHECKPOINT.md`. Migrações canônicas 001–005 pertencem àquele repositório. `schema.sql` deste coletor é somente bootstrap de banco vazio, agora protegido contra reaplicação. Não usar para atualizar banco existente. Corrigida sua ACL de 10 para a assinatura real de 11 argumentos; encerramento antigo fica bloqueado até a migração oficial.
 
@@ -73,4 +73,14 @@ Reutilizar TTF exige `ttf_counters_are_lifetime=true`, `ttf_metrics_digest` dos 
 
 Unidades do protocolo: `count`, `seconds` para tempo jogado, `world_days` para sobrevivência e `meters` para as distâncias separadas. Não converter horas jogadas em dias no mundo. Dados ausentes não viram zero. Observação representa a leitura do snapshot, não a data exata de nascimento, morte ou conquista. O novo fluxo registra sucesso somente após concluir envios; falha parcial registra execução falha e impede encerramento no contrato oficial.
 
-Teste local sem acessar serviços: `python -B -m unittest discover -p "test*.py"` (13 testes). O site contém teste de integração que executa este parser com TTF anonimizado, banco PostgreSQL descartável, API e apresentação reais; apenas o transporte PostgREST é simulado. Múltiplas sessões e PostgREST reais ainda exigem homologação.
+Teste local sem acessar serviços: `python -B -m unittest discover -p "test*.py"`. O site contém testes de integração dos dois leitores com TTF anonimizado, banco PostgreSQL descartável, API e apresentação reais; apenas o transporte PostgREST é simulado. Múltiplas sessões e PostgREST reais ainda exigem homologação.
+
+## Leitor do TTF já existente — `ttf-mp-v1`
+
+A inspeção em leitura encontrou `TTFStatsMP.characterID` em 5/5 registros, associado à conta Steam do SQLite. A variante habilitada é `twistonfirestatsmpstable`; a fonte instalada gera um ID com timestamp e componente aleatório, grava no modData e o preserva nas leituras seguintes. Não é necessário instalar o emissor futuro para esse leitor. Não usar nome ou ID de linha como substituto.
+
+O modo `ttf-mp-v1` reutiliza integralmente a conexão SFTP existente. Lê as duas colunas adicionais `steamid`/`world`, valida a associação e anonimiza os IDs. `LIFE_SOURCE_NAMESPACE_UUID` deve identificar de forma estável a origem/geração do mundo, conferida pelo responsável; não gerar a cada execução ou reutilizar sem revisão após reset do mundo. `TTF_SOURCE_ROOT` aponta para a variante MP STABLE/42.19. Três fontes Lua são conferidas por SHA256, com stat/get somente leitura, antes de aceitar os campos; atualização do mod bloqueia o leitor até revisão.
+
+O contador `distanceTracker` representa distância agregada em metros conforme o Lua instalado; não separa caminhada/direção. `TTFStatsGameTimeSeconds` é tempo jogado em segundos. Kills/tempo/distância são limites observados da vida, não prova de cobertura desde o nascimento: o mod pode ter sido instalado depois. Por isso igualdade a zero e homenagens que exigem histórico completo continuam bloqueadas. Dias no mundo não são derivados de horas jogadas.
+
+**Manter o modo legado em produção** até haver recuperação verificável, migrações 002–005 compatíveis, namespace aprovado e transição coordenada da coorte. Sem dados ambíguos inventados ou backfill por nome. Nenhuma variável foi habilitada automaticamente. O Dockerfile inclui os dois módulos opt-in para evitar falha de importação num deploy futuro.
