@@ -1,5 +1,13 @@
 # Coletor Railway + ranking sazonal — Clube das Winx
 
+## Go-live — Missão 08
+
+A imagem Docker Python 3.12 foi construída e os 22 testes passaram também dentro dela. A transição conserva inicialmente o modo legado. As migrações do site são aplicadas manualmente na ordem 001–004, 006, 005, 007; 005 prepara os leitores, 007 prepara a ativação, sem trocar a coorte automaticamente. Somente após um lote nativo completo validado a RPC privada de ativação libera o ranking de vidas.
+
+O snapshot inclui agora a verificação do journal SQLite: journal ativo e sidecar sem permissão bloqueiam a leitura antes do download. WAL/SHM continuam verificados. Nenhuma escrita é feita na origem.
+
+O modo nativo exige somente as configurações adicionais não secretas LIFE_PIPELINE_VERSION, LIFE_SOURCE_NAMESPACE_UUID e TTF_SOURCE_ROOT; não trocar o salt ou as credenciais existentes. Registros legados continuam preservados, sem atribuição de pontos/medalhas passados por nome. Pontos do novo perfil de vida começam em sua primeira leitura validada, separados dos totais TTF observados.
+
 ## Estado da Missão Master 07 — 25/10/2026
 
 Clone legítimo em `codex/mission07`, base `master@07dde5c`. Vínculo Railway confirmado por sessão autenticada: projeto `heartfelt-surprise`, serviço `winx-ranking-collector`, branch produtiva `master`, Dockerfile/Python 3.12, `python collector.py`, cron de 5 minutos e política Never. A feature branch não é a branch de deploy. A correção 001 foi aplicada separadamente no Supabase; o usuário corrigiu o SFTP e uma coleta de 5 personagens foi confirmada no banco. Nenhuma credencial foi alterada pelo agente e o código novo continua sem implantação.

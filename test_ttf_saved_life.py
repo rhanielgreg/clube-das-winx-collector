@@ -74,7 +74,7 @@ class SavedLifeTests(unittest.TestCase):
     def test_sqlite_snapshot_keeps_legacy_shape_and_exact_steam_integer(self):
         class SFTP:
             def stat(self,path):
-                if path.endswith(('-wal','-shm')):raise FileNotFoundError(path)
+                if path.endswith(('-wal','-shm','-journal')):raise FileNotFoundError(path)
                 return SimpleNamespace(st_size=source.stat().st_size,st_mtime=1)
             def get(self,_,target):shutil.copyfile(source,target)
         with tempfile.TemporaryDirectory() as folder:
@@ -90,6 +90,17 @@ class SavedLifeTests(unittest.TestCase):
                 if width==6:
                     self.assertIsInstance(rows[0][4],int)
                     self.assertEqual(rows[0][4],76561198000000000)
+
+    def test_active_rollback_journal_and_unreadable_sidecar_fail_before_download(self):
+        class SFTP:
+            def __init__(self,blocked=False):self.blocked=blocked
+            def stat(self,path):
+                if path.endswith('-wal') and self.blocked:raise PermissionError(13,'access denied')
+                if path.endswith(('-wal','-shm')):raise FileNotFoundError(path)
+                return SimpleNamespace(st_size=4096 if path.endswith('-journal') else 122880,st_mtime=1)
+            def get(self,*_):raise AssertionError('unsafe source must not be downloaded')
+        with self.assertRaisesRegex(ValueError,'journal ativo'):download_consistent_snapshot(SFTP(),'/players.db',Path('unused'))
+        with self.assertRaises(PermissionError):download_consistent_snapshot(SFTP(True),'/players.db',Path('unused'))
 
     def test_profile_reads_only_stat_get_and_rejects_modified_source(self):
         class SFTP:

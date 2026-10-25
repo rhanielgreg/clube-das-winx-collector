@@ -1,5 +1,6 @@
 """Coleta segura do ranking: BisectHosting/SFTP -> snapshot SQLite -> Supabase."""
 from datetime import datetime, timezone
+import errno
 import hashlib
 import logging
 import os
@@ -42,11 +43,11 @@ def file_signature(attributes):
 
 def remote_manifest(sftp, remote):
     manifest = {}
-    for suffix in ('', '-wal', '-shm'):
+    for suffix in ('', '-wal', '-shm', '-journal'):
         try:
             manifest[suffix] = file_signature(sftp.stat(remote + suffix))
-        except OSError:
-            if suffix == '':
+        except OSError as error:
+            if suffix == '' or not (isinstance(error,FileNotFoundError) or error.errno==errno.ENOENT):
                 raise
     return manifest
 
@@ -54,6 +55,8 @@ def remote_manifest(sftp, remote):
 def download_consistent_snapshot(sftp, remote, local):
     """Rejeita a coleta se DB/WAL/SHM mudarem ou aparecerem durante o download."""
     before = remote_manifest(sftp, remote)
+    if before.get('-journal',(0,))[0]>0:
+        raise ValueError('players.db possui journal ativo; tentar novamente sem alterar a origem')
     for suffix in before:
         sftp.get(remote + suffix, str(local) + suffix)
     after = remote_manifest(sftp, remote)
