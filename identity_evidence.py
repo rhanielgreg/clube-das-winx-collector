@@ -11,6 +11,7 @@ from pathlib import Path
 import sqlite3
 from probe_stats import anchored_value
 from stats import ttf_observation_counters
+from ttf_saved_life import read_saved_record
 
 
 def sample(path):
@@ -69,9 +70,35 @@ def compare(previous, current):
                 limitation='New IDs alone do not certify birth, namespace generation or complete-life coverage.')
 
 
+def correlate_saved_record(snapshot, text):
+    """Match the entire saved ID/username, never a player or character name alone."""
+    _, rows = sample(snapshot)
+    matches=[]
+    for (_, identity), row in rows.items():
+        # An archive for another ID must not attach to a same-name life.
+        if 'characterID='+identity not in text.splitlines():continue
+        record=read_saved_record(text,identity)
+        if record['username']!=row['username']:raise ValueError('archive/snapshot account binding mismatch')
+        matches.append({'life_digest':hashlib.sha256(identity.encode()).hexdigest(),
+            'snapshot_alive':row['alive'],'archive_alive':record['alive'],
+            'death_recorded_at':record['death_recorded_at'],
+            'world_namespace_verified':False,'activation_authorized':False})
+    if len(matches)!=1:raise ValueError('exact archived identity not present once in snapshot')
+    return matches[0]
+
+
 if __name__ == '__main__':
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument('previous')
     parser.add_argument('current')
+    parser.add_argument('--record',action='append',default=[],help='Local TTF archive; diagnostics only, no ingestion')
     args = parser.parse_args()
-    print(json.dumps(compare(args.previous, args.current), sort_keys=True))
+    evidence=compare(args.previous,args.current)
+    if args.record:
+        evidence['archive_evidence']=[]
+        for path in args.record:
+            text=Path(path).read_text(encoding='utf-8')
+            try:linked=correlate_saved_record(args.previous,text)
+            except ValueError:linked=correlate_saved_record(args.current,text)
+            evidence['archive_evidence'].append(linked)
+    print(json.dumps(evidence, sort_keys=True))

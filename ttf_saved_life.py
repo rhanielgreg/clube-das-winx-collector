@@ -15,10 +15,84 @@ from stats import ttf_observation_counters
 from verified_life import UNITS
 
 SOURCE_FILES = {
+ 'media/lua/shared/TTF_StatsMP_Shared.lua':'8612068b1454cd135640a33120069466a32077978c0a473d1767a48ae98ec057',
  'media/lua/server/TTF_StatsMP_Server.lua':'9c3f2ce7eaa2dd5ef99ec7a92698bf615a856639c799e914ed83580a7b806e17',
  'media/lua/client/TTF_StatsMP_Client.lua':'05e717622b52b3fc340ab5654bfc89457ebe2b28300c9ce0db14e5c9ed105cdc',
  'media/lua/client/TwisTonFireStats.lua':'b6d8b95ca1a4073195978ceb95d8776ccb3aeec540c35da0a94bc4cc477cd413',
 }
+
+def read_saved_record(text, expected_id):
+    """Offline evidence from the installed writer, never an ingestion payload.
+
+    Exact ID binding is mandatory. The shared Lua directory has no world label;
+    this record alone cannot certify a namespace or authorize retroactive medals.
+    """
+    if not isinstance(text,str) or len(text.encode('utf-8'))>65536:
+        raise ValueError('invalid saved record size')
+    fields={}
+    for line in text.splitlines():
+        if not line:continue
+        key, separator, value=line.partition('=')
+        if not separator or key in fields:raise ValueError('partial or duplicate saved record field')
+        fields[key]=value
+    if fields.get('version')!='1' or fields.get('deleted')!='false' or fields.get('characterID')!=expected_id:
+        raise ValueError('saved record version/deletion/identity mismatch')
+    if not {'forename','surname','deathDateStamp','deathRealTimestamp','dailySeries'}<=fields.keys():
+        raise ValueError('partial saved record')
+    if not fields.get('username') or fields.get('isDead') not in ('true','false'):
+        raise ValueError('saved record identity/state missing')
+    def number(key):
+        if key not in fields:return None
+        try:value=float(fields[key])
+        except (ValueError,OverflowError):raise ValueError('invalid saved counter') from None
+        if not math.isfinite(value) or not 0<=value<=31536000000:raise ValueError('invalid saved counter')
+        return value
+    dead=fields['isDead']=='true'
+    death=number('deathRealTimestamp')
+    if dead and (death is None or death<=0 or death>datetime.now(timezone.utc).timestamp()+60):
+        raise ValueError('saved death evidence missing')
+    if not dead and death not in (None,0):raise ValueError('saved life state inconsistent')
+    return {'character_id':expected_id,'username':fields['username'],
+        'character_name':(fields.get('forename','')+' '+fields.get('surname','')).strip(),
+        'alive':not dead,'death_recorded_at':datetime.fromtimestamp(death,timezone.utc).isoformat() if dead else None,
+        'distance_total_m':number('distance'),'played_seconds':number('gameTimeSeconds'),
+        'last_seen_recorded_at':number('lastSeenRealTimestamp'),
+        'world_namespace_verified':False,'activation_authorized':False}
+
+
+def saved_identity(blob, username):
+    metadata=anchored_value(blob or b'','TTFStatsMP')
+    if not isinstance(metadata,dict) or metadata.get('username')!=str(username):raise ValueError('saved TTF identity does not match source row')
+    identity=metadata.get('characterID')
+    match=re.fullmatch(r'.+_([0-9]+(?:\.[0-9]+)?(?:[eE][+-]?[0-9]+)?)_([0-9]{1,6})',identity or '') if isinstance(identity,str) and len(identity)<=300 else None
+    if not match or not 946684800<float(match.group(1))<=datetime.now(timezone.utc).timestamp()+60:
+        raise ValueError('server-generated TTF life identity not verified')
+    return identity
+
+
+def observational_evidence(rows,salt,source_scope,previous):
+    """Private continuity guard for legacy ingestion, never life certification.
+
+    Preserve the exact blob/legacy-key/native-ID bridge for future investigation.
+    Reusing a legacy key with another/missing saved ID fails BEFORE any ingestion.
+    """
+    if not isinstance(previous,dict) or previous.get('contract')!='observational-v1' or not isinstance(previous.get('items'),dict):
+        raise ValueError('observational evidence contract required')
+    result=[];seen=set()
+    for username,name,dead,blob in rows:
+        if not username or not name:continue
+        token=hashlib.sha256(f'{salt}:character:{username}:{name}'.encode()).hexdigest()
+        if token in seen:raise ValueError('duplicate legacy key in snapshot')
+        seen.add(token)
+        try:identity=saved_identity(blob,username)
+        except (ValueError,KeyError,TypeError,IndexError):identity=None
+        digest=hmac.new(salt.encode(),('observed-id:'+identity).encode(),hashlib.sha256).hexdigest() if identity else None
+        before=previous['items'].get(source_scope+':'+token)
+        if before and before.get('life_digest')!=digest:raise ValueError('saved identity changed or missing; legacy key reuse requires investigation')
+        if digest is not None:
+            result.append({'source_scope':source_scope,'character_token':token,'life_digest':digest,
+                'blob_sha256':hashlib.sha256(blob or b'').hexdigest()})
+    return result
 
 def verify_source_files(sftp, root, local_folder):
     """Somente stat/get. Mudança de código exige nova revisão de unidades/ciclo."""
@@ -44,12 +118,7 @@ def extract_saved_lives(rows,salt,namespace,*,observed_at=None):
         if isinstance(steam_id,bool) or not isinstance(steam_id,(int,str)) or not re.fullmatch(r'[0-9]{17}',str(steam_id)):
             raise ValueError('SQLite Steam account missing or ambiguous')
         if not isinstance(world,str) or not 0<len(world)<=200:raise ValueError('source world label missing')
-        metadata=anchored_value(blob or b'','TTFStatsMP')
-        if not isinstance(metadata,dict) or metadata.get('username')!=str(username):raise ValueError('saved TTF identity does not match source row')
-        identity=metadata.get('characterID')
-        match=re.fullmatch(r'.+_([0-9]+(?:\.[0-9]+)?(?:[eE][+-]?[0-9]+)?)_([0-9]{1,6})',identity or '') if isinstance(identity,str) and len(identity)<=300 else None
-        if not match or not 946684800<float(match.group(1))<=datetime.now(timezone.utc).timestamp()+60:
-            raise ValueError('server-generated TTF life identity not verified')
+        identity=saved_identity(blob,username)
         # The same saved life ID cannot be claimed by another account in a world.
         pair=(world,identity)
         if pair in identities:raise ValueError('duplicate source life rows require investigation')

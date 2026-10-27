@@ -1,5 +1,13 @@
 # Coletor Railway + ranking sazonal — Clube das Winx
 
+## Missão 13 — evidência histórica e continuidade observacional
+
+**Requer a migração011 do site antes de publicar este coletor.** O modo legado passa a ler `get_service_source_evidence_v1` e grava `collector_runs.source_diagnostics` ao concluir com sucesso. São somente HMACs do ID observado/escopo e hashes do BLOB/chave legada; não certificam vida, geração do mundo ou cobertura. A mesma chave legada com ID diferente/ausente após uma observação válida é recusada antes da ingestão, preservando as métricas. Sem contrato instalado, falha explicitamente; não usar fallback para contornar a proteção. O coletor anterior continua compatível com011 e ignora a coluna nova.
+
+Arquivos reais em `.cache/Lua/ttf_stats_mp` confirmaram morte do ID de Ebony Adama antes do ID de Bruce Crawley, associado à mesma conta nas cópias SQLite. O log de usuário também registra a morte. Isso não autoriza vincular históricos do Supabase apenas por nome. `identity_evidence.py ... --record ARQUIVO_LOCAL` confronta o ID completo e o usuário do registro com a cópia local; não ingere dados. `death_recorded_at` é horário de registro da morte, não nascimento/idade inferidos.
+
+O pin passa a incluir também `TTF_StatsMP_Shared.lua`, que define a pasta, categorias e snapshot; os quatro arquivos são conferidos no modo nativo. Kills/distância/dias e coorte continuam com os gates existentes. Códigos operacionais agora distinguem autenticação/conexão, snapshot, contrato, parser/identidade e ingestão, sem incluir IDs ou mensagens da fonte no campo error_code. Logs registram contagem de métricas indisponíveis, sem convertê-las em zero.
+
 ## Missão 12 — integridade adicional, modo legado preservado
 
 O snapshot agora compara também os bytes de uma segunda leitura de DB/sidecars: tamanho e mtime iguais não bastam para detectar reescritas no mesmo segundo. Nenhuma escrita remota foi adicionada; credenciais, cron, salt e modos existentes são conservados. O leitor nativo rejeita o mesmo ID de vida reclamado por duas contas no mesmo mundo.

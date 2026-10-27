@@ -2,6 +2,7 @@
 from datetime import datetime, timezone
 import errno
 import hashlib
+import hmac
 import logging
 import os
 from pathlib import Path
@@ -11,7 +12,7 @@ import time
 import uuid
 from stats import confirmed_stats
 from verified_life import extract_verified
-from ttf_saved_life import extract_saved_lives, verify_source_files
+from ttf_saved_life import extract_saved_lives, verify_source_files,observational_evidence
 
 logging.basicConfig(level=os.getenv('LOG_LEVEL', 'INFO'), format='%(asctime)s %(levelname)s %(message)s')
 LOG = logging.getLogger('winx-collector')
@@ -35,6 +36,19 @@ def http_session():
 
 def utcnow():
     return datetime.now(timezone.utc).isoformat()
+
+
+def failure_code(error, stage):
+    """Stable operational codes; no usernames, URLs or exception payloads."""
+    if stage == 'source':
+        if type(error).__name__ == 'AuthenticationException':return 'source_auth_failed'
+        if type(error).__name__ == 'BadHostKeyException':return 'source_host_key_rejected'
+        if isinstance(error,(ValueError,sqlite3.DatabaseError)):return 'snapshot_invalid'
+        return 'source_connection_failed'
+    if stage == 'parser':return 'parser_or_identity_invalid'
+    if stage == 'ingestion':return 'ingestion_failed'
+    if stage == 'contract_read':return 'evidence_contract_unavailable'
+    return 'unexpected_failure'
 
 
 def file_signature(attributes):
@@ -155,7 +169,7 @@ def begin_run():
     return response.json()[0]['id']
 
 
-def finish_run(run_id, status, count=0, error_code=None, fingerprint=None):
+def finish_run(run_id, status, count=0, error_code=None, fingerprint=None,source_diagnostics=None):
     payload = {
         'status': status,
         'finished_at': utcnow(),
@@ -163,6 +177,7 @@ def finish_run(run_id, status, count=0, error_code=None, fingerprint=None):
         'error_code': error_code,
         'source_fingerprint': fingerprint,
     }
+    if source_diagnostics is not None:payload['source_diagnostics']=source_diagnostics
     response = http_session().patch(supabase_url(f'collector_runs?id=eq.{run_id}'), json=payload,
                                     headers=supabase_headers('return=minimal'), timeout=20)
     response.raise_for_status()
@@ -246,16 +261,30 @@ def main():
         return
 
     run_id = None
+    stage = 'run_registration'
     try:
         run_id = begin_run()
+        stage = 'source'
         rows = collect_rows()
+        stage = 'parser'
+        diagnostics=None
+        if pipeline in ('','legacy'):
+            stage='contract_read'
+            previous=rpc('get_service_source_evidence_v1',{})
+            stage='parser'
+            scope=hmac.new(salt.encode(),('source:'+required('SFTP_HOST')+':'+required('SFTP_DB_PATH')).encode(),hashlib.sha256).hexdigest()
+            diagnostics=observational_evidence(rows,salt,scope,previous)
+            LOG.info('Evidencia observacional: %d/%d IDs; nenhuma vida certificada por este diagnostico',len(diagnostics),len(rows))
         observations = extract_for_pipeline(rows)
+        missing=sum(item.get('p_kills_total') is None for item in observations) if pipeline in ('','legacy') else 0
+        if missing:LOG.warning('metricas_indisponiveis records=%d; valores ausentes nao foram convertidos em zero',missing)
         hash_field = 'p_source_sha256' if pipeline in ('life-v1','ttf-mp-v1') else 'p_blob_sha256'
         fingerprint = hashlib.sha256('|'.join(sorted(item[hash_field] for item in observations)).encode()).hexdigest()
+        stage = 'ingestion'
         push(observations)
-        finish_run(run_id, 'success', len(observations), fingerprint=fingerprint)
+        finish_run(run_id, 'success', len(observations), fingerprint=fingerprint,**({'source_diagnostics':diagnostics} if diagnostics is not None else {}))
     except Exception as error:
-        error_code = type(error).__name__[:80]
+        error_code = failure_code(error,stage)
         LOG.exception('Coleta falhou (%s); nenhuma credencial foi registrada', error_code)
         if run_id:
             try:
