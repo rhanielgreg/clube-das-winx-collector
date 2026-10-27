@@ -50,7 +50,8 @@ def extract_saved_lives(rows,salt,namespace,*,observed_at=None):
         match=re.fullmatch(r'.+_([0-9]+(?:\.[0-9]+)?(?:[eE][+-]?[0-9]+)?)_([0-9]{1,6})',identity or '') if isinstance(identity,str) and len(identity)<=300 else None
         if not match or not 946684800<float(match.group(1))<=datetime.now(timezone.utc).timestamp()+60:
             raise ValueError('server-generated TTF life identity not verified')
-        pair=(world,str(steam_id),identity)
+        # The same saved life ID cannot be claimed by another account in a world.
+        pair=(world,identity)
         if pair in identities:raise ValueError('duplicate source life rows require investigation')
         identities.add(pair)
         counters=ttf_observation_counters(blob or b'')

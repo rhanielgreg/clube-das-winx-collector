@@ -1,5 +1,13 @@
 # Coletor Railway + ranking sazonal — Clube das Winx
 
+## Missão 12 — integridade adicional, modo legado preservado
+
+O snapshot agora compara também os bytes de uma segunda leitura de DB/sidecars: tamanho e mtime iguais não bastam para detectar reescritas no mesmo segundo. Nenhuma escrita remota foi adicionada; credenciais, cron, salt e modos existentes são conservados. O leitor nativo rejeita o mesmo ID de vida reclamado por duas contas no mesmo mundo.
+
+`python -B identity_evidence.py COPIA_ANTERIOR.db COPIA_ATUAL.db` compara **cópias locais destacadas**, em SQLite somente leitura, sem imprimir contas/IDs. Sidecars tornam a cópia inadequada para esse diagnóstico. IDs novos não certificam automaticamente nascimento, cobertura ou namespace. O comando não ingere nem ativa o contrato.
+
+A cópia real conferida nesta missão conserva os cinco IDs: três vivos/dois mortos. Em relação à primeira amostra houve uma morte, sem nascimento/renomeação observado. **TTF/life-v1 continuam desativados em produção** até cumprir esses eventos e confirmar a geração do mundo. Não associar o histórico legado por nome. Migração 010 do site prepara guardas transacionais adicionais; não habilita a coorte e não muda o payload legado. Testes atuais: 28 Python isolados; a validação do deployment produtivo deve constar no checkpoint do site.
+
 ## Go-live — Missão 08
 
 A imagem Docker Python 3.12 foi construída e os 22 testes passaram também dentro dela. A transição conserva inicialmente o modo legado. As migrações do site são aplicadas manualmente na ordem 001–004, 006, 005, 007; 005 prepara os leitores, 007 prepara a ativação, sem trocar a coorte automaticamente. Somente após um lote nativo completo validado a RPC privada de ativação libera o ranking de vidas.

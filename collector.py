@@ -63,6 +63,20 @@ def download_consistent_snapshot(sftp, remote, local):
     if before != after:
         raise ValueError('players.db mudou durante o download')
 
+    # SFTP mtime is commonly only precise to a second. An equal-size rewrite can
+    # pass stat checks; compare a second read of every member before using SQLite.
+    for suffix in before:
+        first = Path(str(local) + suffix)
+        verification = Path(str(local) + suffix + '.verify')
+        try:
+            sftp.get(remote + suffix, str(verification))
+            if hashlib.sha256(first.read_bytes()).digest() != hashlib.sha256(verification.read_bytes()).digest():
+                raise ValueError('players.db mudou sem alterar tamanho/mtime')
+        finally:
+            verification.unlink(missing_ok=True)
+    if remote_manifest(sftp, remote) != before:
+        raise ValueError('players.db ou sidecar mudou durante a verificacao')
+
     connection = sqlite3.connect(str(local))
     try:
         connection.execute('PRAGMA query_only = ON')
@@ -193,7 +207,7 @@ def collect_rows():
                             raise
                         delay = 2 ** attempt
                         LOG.warning('Snapshot inconsistente/indisponivel, tentativa %d/3; retry em %ds', attempt, delay)
-                        for suffix in ('', '-wal', '-shm'):
+                        for suffix in ('', '-wal', '-shm', '-journal'):
                             (Path(folder) / ('players.db' + suffix)).unlink(missing_ok=True)
                         time.sleep(delay)
             finally:
