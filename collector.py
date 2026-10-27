@@ -48,6 +48,7 @@ def failure_code(error, stage):
     if stage == 'parser':return 'parser_or_identity_invalid'
     if stage == 'ingestion':return 'ingestion_failed'
     if stage == 'contract_read':return 'evidence_contract_unavailable'
+    if stage == 'calendar':return 'calendar_reconciliation_failed'
     return 'unexpected_failure'
 
 
@@ -189,6 +190,22 @@ def push(observations):
     LOG.info('Sincronizados %d personagens', len(observations))
 
 
+def calendar_contract():
+    """Backward compatible marker; never changes flags or schedules itself."""
+    release = rpc('get_public_dashboard_release_v1', {})
+    return isinstance(release, dict) and release.get('product14_installed') is True
+
+
+def reconcile_calendar(installed):
+    if not installed:
+        return
+    result = rpc('reconcile_months_v2', {})
+    if not isinstance(result, dict) or not isinstance(result.get('enabled'), bool):
+        raise ValueError('monthly calendar contract unavailable')
+    if result.get('transitions', 0):
+        LOG.info('Calendario mensal reconciliado: %d transicoes; resultados sujeitos a certificacao',result['transitions'])
+
+
 def collect_rows():
     import paramiko
     client = paramiko.SSHClient()
@@ -264,6 +281,13 @@ def main():
     stage = 'run_registration'
     try:
         run_id = begin_run()
+        stage = 'calendar'
+        monthly_installed = calendar_contract()
+        if monthly_installed and pipeline in ('life-v1','ttf-mp-v1'):
+            readiness = rpc('get_service_product14_readiness_v2', {})
+            if not isinstance(readiness,dict) or readiness.get('contract_ready') is not True:
+                raise ValueError('certified source generation required for native cohort')
+        reconcile_calendar(monthly_installed)
         stage = 'source'
         rows = collect_rows()
         stage = 'parser'
@@ -280,8 +304,12 @@ def main():
         if missing:LOG.warning('metricas_indisponiveis records=%d; valores ausentes nao foram convertidos em zero',missing)
         hash_field = 'p_source_sha256' if pipeline in ('life-v1','ttf-mp-v1') else 'p_blob_sha256'
         fingerprint = hashlib.sha256('|'.join(sorted(item[hash_field] for item in observations)).encode()).hexdigest()
+        stage = 'calendar'
+        reconcile_calendar(monthly_installed)
         stage = 'ingestion'
         push(observations)
+        stage = 'calendar'
+        reconcile_calendar(monthly_installed)
         finish_run(run_id, 'success', len(observations), fingerprint=fingerprint,**({'source_diagnostics':diagnostics} if diagnostics is not None else {}))
     except Exception as error:
         error_code = failure_code(error,stage)

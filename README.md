@@ -1,5 +1,13 @@
 # Coletor Railway + ranking sazonal — Clube das Winx
 
+## Missão Master 14 — calendário mensal compatível
+
+As migrações 012–014 do site devem preceder esta versão. O coletor consulta o marcador instalado e reconcilia o calendário com o relógio do banco antes da leitura, imediatamente antes da ingestão e depois dela. Sem marcador, preserva a execução anterior; instalado mas inválido, falha explicitamente antes de coletar. DRY_RUN não executa reconciliações. A ativação mensal é uma operação separada após a publicação dos consumidores. O cron existente de cinco minutos é preservado; uma falha SFTP não impede a reconciliação anterior à leitura.
+
+Nenhuma credencial, configuração do mundo ou regra de identidade foi alterada. O modo nativo exige também a prontidão v2 e evidência independente da geração do mundo; o modo legado continua operacional. A virada usa meses civis de Brasília e o banco rejeita observações fora de [início,fim). Incrementos sem competência temporal comprovada não certificam resultados.
+
+Validação desta alteração: 39 testes Python isolados. O checkpoint do site registra os SHAs e a validação produtiva; passagem de testes locais não prova deploy.
+
 ## Missão 13 — evidência histórica e continuidade observacional
 
 **Requer a migração011 do site antes de publicar este coletor.** O modo legado passa a ler `get_service_source_evidence_v1` e grava `collector_runs.source_diagnostics` ao concluir com sucesso. São somente HMACs do ID observado/escopo e hashes do BLOB/chave legada; não certificam vida, geração do mundo ou cobertura. A mesma chave legada com ID diferente/ausente após uma observação válida é recusada antes da ingestão, preservando as métricas. Sem contrato instalado, falha explicitamente; não usar fallback para contornar a proteção. O coletor anterior continua compatível com011 e ignora a coluna nova.
